@@ -10,6 +10,14 @@
 *.exe
 *.pkg
 
+# Keep just the camera firmware example from the downloaded board bundle
+/Freenove_ESP32_S3_WROOM_Board-3.0.x/**
+!/Freenove_ESP32_S3_WROOM_Board-3.0.x/
+!/Freenove_ESP32_S3_WROOM_Board-3.0.x/C/
+!/Freenove_ESP32_S3_WROOM_Board-3.0.x/C/Sketches/
+!/Freenove_ESP32_S3_WROOM_Board-3.0.x/C/Sketches/Sketch_07.2_As_VideoWebServer/
+!/Freenove_ESP32_S3_WROOM_Board-3.0.x/C/Sketches/Sketch_07.2_As_VideoWebServer/**
+
 # Local editor and automation state
 /.agents/
 /.aws/

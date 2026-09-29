@@ -1,8 +1,15 @@
 # Camera viewer and recorder
 
 On this computer, open http://localhost:8080/. Nginx listens on loopback only.
+From an authorized device on the tailnet, open
+https://mainframe.tail8a571b.ts.net/; Tailscale Serve forwards HTTPS to the
+local viewer and keeps it tailnet-only.
 The camera supplies MJPEG at http://192.168.1.241:81/stream. Use the viewer
 while recording; opening another stream directly may contend with the recorder.
+
+The recorder writes one-hour clips aligned to the wall clock and can play all
+completed clips in order from the recordings section. The active clip joins
+the playlist after it closes.
 
 The recorder uses frame arrival timestamps because MJPEG supplies no capture
 clock. Assuming 25 fps compresses elapsed time when the camera sends fewer
