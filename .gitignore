@@ -1,0 +1,16 @@
+# Captured video and generated live stream segments
+/recordings/
+/camera-recordings/
+/web/live/
+*.mp4
+*.ts
+
+# Downloaded installers and bundled dependency archives
+*.zip
+*.exe
+*.pkg
+
+# Local editor and automation state
+/.agents/
+/.aws/
+/.codex/
