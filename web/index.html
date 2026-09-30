@@ -101,7 +101,7 @@ playAllButton.addEventListener("click", async () => {
         const page = new DOMParser().parseFromString(await response.text(), "text/html");
         const candidates = [...page.querySelectorAll("a[href]")]
             .map(link => {
-                const url = new URL(link.getAttribute("href"), location.href);
+                const url = new URL(link.getAttribute("href"), response.url);
                 return { url: url.href, name: decodeURIComponent(url.pathname.split("/").pop()) };
             })
             .filter(clip => /^\d{4}-\d\d-\d\d_\d\d-\d\d-\d\d\.mp4$/.test(clip.name))
