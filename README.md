@@ -16,7 +16,8 @@ clock. Assuming 25 fps compresses elapsed time when the camera sends fewer
 frames and makes a live player repeatedly exhaust its buffer.
 
 One H.264 encoder supplies both the HLS viewer and recordings at the camera's
-native resolution. A fixed 10 fps output repeats frames as needed to keep a
+native resolution. HLS segments average one second, with a short playback
+buffer to reduce delay. A fixed 10 fps output repeats frames as needed to keep a
 continuous timeline when the camera sends frames irregularly; it does not
 create additional motion detail. The player targets about three seconds behind the published
 live edge; capture, encoding and network time add to that. Variable camera frame

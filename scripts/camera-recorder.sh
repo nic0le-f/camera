@@ -10,7 +10,7 @@ mkdir -p "$RECORDINGS" "$LIVE"
 # Encode once and send the same H.264 packets to both outputs. Fragmented
 # MP4 commits each keyframe interval without waiting for the clip to close.
 outputs="[f=segment:segment_format=mp4:segment_time=3600:segment_atclocktime=1:reset_timestamps=1:strftime=1:segment_format_options=movflags=+frag_keyframe+empty_moov+default_base_moof]$RECORDINGS/%Y-%m-%d_%H-%M-%S.mp4"
-outputs+="|[f=hls:hls_time=1:hls_list_size=10:hls_delete_threshold=5:hls_start_number_source=epoch:hls_flags=delete_segments+omit_endlist+independent_segments+temp_file:hls_segment_filename=$LIVE/segment_%d.ts]$LIVE/live.m3u8"
+outputs+="|[f=hls:hls_time=0.8:hls_list_size=8:hls_delete_threshold=4:hls_start_number_source=epoch:hls_flags=delete_segments+omit_endlist+independent_segments+temp_file:hls_segment_filename=$LIVE/segment_%d.ts]$LIVE/live.m3u8"
 
 child=""
 stopping=0
@@ -36,7 +36,7 @@ while (( ! stopping )); do
         -map 0:v -an \
         -c:v libx264 -preset veryfast -tune zerolatency \
         -crf 23 -pix_fmt yuv420p -vf fps=10 -fps_mode cfr \
-        -force_key_frames 'expr:gte(t,n_forced*1)' \
+        -force_key_frames 'expr:gte(t,n_forced*0.5)' \
         -flags +global_header \
         -f tee "$outputs" &
     child=$!
