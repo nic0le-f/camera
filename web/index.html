@@ -6,8 +6,6 @@
 
     <title>Home Camera</title>
 
-    <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
-
     <style>
         body {
             font-family: Arial, sans-serif;
@@ -34,6 +32,16 @@
             color: #9ecbff;
             font-size: 1.1rem;
         }
+
+        #recording-list {
+            max-height: 22rem;
+            overflow-y: auto;
+            padding-left: 1.4rem;
+        }
+
+        #recording-list li {
+            margin: 0.65rem 0;
+        }
     </style>
 </head>
 
@@ -42,19 +50,21 @@
 <h1>Home Camera</h1>
 
 <div class="section">
+    <h2>Saved recordings</h2>
+    <p>One-hour clips, kept for approximately 48 hours. Select a clip to play it, or play the full batch.</p>
+    <button id="play-all" type="button">Play all saved clips</button>
+    <button id="return-live" type="button" hidden>Return to live</button>
+    <button id="refresh-recordings" type="button">Refresh list</button>
+    <p id="recordings-status" role="status">Loading recordings…</p>
+    <ul id="recording-list"></ul>
+    <a href="/recordings/">View recordings</a>
+</div>
+
+<div class="section">
     <h2>Live Feed</h2>
 
     <video id="video" controls autoplay muted playsinline></video>
     <p id="stream-status" role="status">Connecting to the camera…</p>
-</div>
-
-<div class="section">
-    <h2>Recordings</h2>
-    <p>Saved in one-hour clips and kept for approximately 48 hours.</p>
-    <button id="play-all" type="button">Play all saved clips</button>
-    <button id="return-live" type="button" hidden>Return to live</button>
-    <p id="recordings-status" role="status"></p>
-    <a href="/recordings/">View recordings</a>
 </div>
 
 <script>
@@ -64,6 +74,8 @@ const streamStatus = document.getElementById("stream-status");
 const recordingsStatus = document.getElementById("recordings-status");
 const playAllButton = document.getElementById("play-all");
 const returnLiveButton = document.getElementById("return-live");
+const refreshRecordingsButton = document.getElementById("refresh-recordings");
+const recordingList = document.getElementById("recording-list");
 let playlist = [];
 let playlistIndex = -1;
 let hlsPlayer = null;
@@ -93,8 +105,9 @@ async function playPlaylistClip() {
     }
 }
 
-playAllButton.addEventListener("click", async () => {
+async function loadRecordings() {
     recordingsStatus.textContent = "Loading saved clips…";
+    refreshRecordingsButton.disabled = true;
     try {
         const response = await fetch("/recordings/", { cache: "no-store" });
         if (!response.ok) throw new Error("Recordings page unavailable");
@@ -106,6 +119,18 @@ playAllButton.addEventListener("click", async () => {
             })
             .filter(clip => /^\d{4}-\d\d-\d\d_\d\d-\d\d-\d\d\.mp4$/.test(clip.name))
             .sort((a, b) => a.name.localeCompare(b.name));
+        recordingList.replaceChildren();
+        for (const clip of [...candidates].reverse()) {
+            const item = document.createElement("li");
+            const link = document.createElement("a");
+            link.href = clip.url;
+            link.textContent = clip.name.replace(/^(\d{4}-\d\d-\d\d)_(\d\d-\d\d-\d\d)\.mp4$/, "$1 $2");
+            item.append(link);
+            recordingList.append(item);
+        }
+        recordingsStatus.textContent = candidates.length
+            ? `Found ${candidates.length} recordings. Checking which clips are complete…`
+            : "No recordings yet. New clips will appear here.";
         const checked = await Promise.all(candidates.map(async clip => {
             const head = await fetch(clip.url, { method: "HEAD", cache: "no-store" });
             const size = Number(head.headers.get("Content-Length"));
@@ -113,10 +138,32 @@ playAllButton.addEventListener("click", async () => {
             return head.ok && size > 50000 && Number.isFinite(modified) && Date.now() - modified > 90000 ? clip : null;
         }));
         playlist = checked.filter(Boolean);
-        if (!playlist.length) {
-            recordingsStatus.textContent = "No completed clips are available yet. The current clip is added after it closes.";
-            return;
+        recordingList.replaceChildren();
+        for (const clip of [...playlist].reverse()) {
+            const item = document.createElement("li");
+            const link = document.createElement("a");
+            link.href = clip.url;
+            link.textContent = clip.name.replace(/^(\d{4}-\d\d-\d\d)_(\d\d-\d\d-\d\d)\.mp4$/, "$1 $2");
+            item.append(link);
+            recordingList.append(item);
         }
+        if (!playlist.length) {
+            recordingsStatus.textContent = "No completed clips yet. The current clip appears after it closes.";
+        } else {
+            recordingsStatus.textContent = `${playlist.length} completed recordings available.`;
+        }
+    } catch {
+        playlist = [];
+        recordingList.replaceChildren();
+        recordingsStatus.textContent = "Could not load recordings. Check your connection and refresh the list.";
+    } finally {
+        refreshRecordingsButton.disabled = false;
+    }
+}
+
+playAllButton.addEventListener("click", async () => {
+    await loadRecordings();
+    if (!playlist.length) return;
         if (hlsPlayer) {
             hlsPlayer.destroy();
             hlsPlayer = null;
@@ -126,12 +173,13 @@ playAllButton.addEventListener("click", async () => {
         returnLiveButton.hidden = false;
         streamStatus.textContent = "Playing saved clips.";
         await playPlaylistClip();
-    } catch {
-        recordingsStatus.textContent = "Could not load saved clips. Use View recordings to open them individually.";
-    }
 });
+refreshRecordingsButton.addEventListener("click", loadRecordings);
 returnLiveButton.addEventListener("click", () => location.reload());
 
+loadRecordings();
+
+function startLivePlayer() {
 if (window.Hls && Hls.isSupported()) {
     hlsPlayer = new Hls({
         lowLatencyMode: true,
@@ -175,6 +223,17 @@ if (window.Hls && Hls.isSupported()) {
 } else {
     streamStatus.textContent = "The video player could not start. Check your connection and reload this page.";
     video.outerHTML = "<p>This browser does not support the live video format.</p>";
+}
+}
+
+if (window.Hls) {
+    startLivePlayer();
+} else {
+    const hlsScript = document.createElement("script");
+    hlsScript.src = "https://cdn.jsdelivr.net/npm/hls.js@latest";
+    hlsScript.onload = startLivePlayer;
+    hlsScript.onerror = startLivePlayer;
+    document.head.append(hlsScript);
 }
 </script>
 
