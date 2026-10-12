@@ -1,0 +1,18 @@
+[Unit]
+Description=Camera live stream and rolling recorder
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=__SERVICE_USER__
+Group=__SERVICE_GROUP__
+WorkingDirectory=__PROJECT_ROOT__
+Environment=PROJECT_ROOT=__PROJECT_ROOT__
+EnvironmentFile=-/etc/camera-recorder.env
+ExecStart=__PROJECT_ROOT__/scripts/camera-recorder.sh
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

@@ -1,47 +1,76 @@
-# Camera viewer and recorder
+# Camera dashboard and 72-hour recorder
 
-On this computer, open http://localhost:8080/. Nginx listens on loopback only.
-From an authorized device on the tailnet, open
-https://mainframe.tail8a571b.ts.net/; Tailscale Serve forwards HTTPS to the
-local viewer and keeps it tailnet-only.
-The camera supplies MJPEG at http://192.168.1.241:81/stream. Use the viewer
-while recording; opening another stream directly may contend with the recorder.
+This project records an ESP32 MJPEG camera and provides a private dashboard
+with a low-delay live feed and a continuous, seekable 72-hour history.
 
-The recorder writes one-hour clips aligned to the wall clock and can play all
-completed clips in order from the recordings section. The active clip joins
-the playlist after it closes.
+The recording is stored as one-minute HLS segments rather than giant video
+files. This is intentional: a restart or damaged file can only affect a small
+piece, while the dashboard still presents the pieces as one recording with a
+single wall-clock timeline. FFmpeg automatically removes segments after they
+fall out of the 72-hour rolling window.
 
-The recorder uses frame arrival timestamps because MJPEG supplies no capture
-clock. Assuming 25 fps compresses elapsed time when the camera sends fewer
-frames and makes a live player repeatedly exhaust its buffer.
+The dashboard listens only on `http://127.0.0.1:8080/` and is published
+privately with Tailscale Serve. The scripts derive their paths from the
+repository, so the project can be moved or installed without editing source
+files.
 
-One H.264 encoder supplies both the HLS viewer and recordings at the camera's
-native resolution. HLS segments average one second, with a short playback
-buffer to reduce delay. A fixed 10 fps output repeats frames as needed to keep a
-continuous timeline when the camera sends frames irregularly; it does not
-create additional motion detail. The player targets about three seconds behind the published
-live edge; capture, encoding and network time add to that. Variable camera frame
-rate can still produce choppy motion. Returning to the tab catches up to live.
+Machine-specific settings are deliberately kept out of Git. The installer
+stores the real camera address and retention settings in
+`/etc/camera-recorder.env`; the repository contains only an example template.
 
-Recordings are fragmented MP4 files cut at five-minute wall-clock boundaries.
-The initial clip can be shorter. Completed fragments are readable before the
-clip closes and remain recoverable after interruption; the last incomplete
-fragment can be lost. Existing recordings keep their original format and timing.
-The cleanup script retains approximately 48 hours, running hourly.
+## Install
 
-Files:
+Ubuntu needs FFmpeg and Nginx. Tailscale is already installed on this machine,
+but its daemon and account still need to be enabled.
 
-- `scripts/camera-recorder.sh`: capture, one H.264 encode, HLS and MP4 output.
-- `scripts/camera-cleanup.sh`: existing retention policy.
-- `web/index.html`: live player and recordings link.
-- `config/nginx-camera.conf`: loopback viewer configuration.
+```bash
+sudo apt update
+sudo apt install ffmpeg nginx
+sudo "$(pwd)/scripts/install.sh"
+```
 
-After recorder changes, run `sudo systemctl restart camera-recorder.service`.
-After player changes, refresh the browser (Ctrl+Shift+R if needed).
-Check `journalctl -u camera-recorder.service -n 30 --no-pager` for failures.
+Edit `/etc/camera-recorder.env` and replace `CAMERA_IP` with the camera's local
+IP address, then run:
 
-The recorder accepts CAMERA_URL, RECORDINGS and LIVE environment overrides.
-Keep output paths free of FFmpeg tee option delimiters (`|`, `:`, `[` and `]`).
+```bash
+sudo systemctl restart camera-recorder.service
+```
 
-Recording implementation follows FFmpeg's segment, tee and fragmented MP4
-options: https://www.ffmpeg.org/ffmpeg-formats.html.
+Check the local dashboard at `http://127.0.0.1:8080/`. Once that works, connect
+Tailscale and publish the loopback-only site to the tailnet:
+
+```bash
+sudo systemctl enable --now tailscaled
+sudo tailscale up
+sudo tailscale serve --bg http://127.0.0.1:8080
+tailscale serve status
+```
+
+The last command prints the private HTTPS address to open on another device in
+the same tailnet.
+
+## Operation
+
+```bash
+systemctl status camera-recorder.service
+journalctl -u camera-recorder.service -n 50 --no-pager
+sudo systemctl restart camera-recorder.service
+```
+
+Configuration lives in `/etc/camera-recorder.env`:
+
+- `CAMERA_URL`: MJPEG stream URL.
+- `ARCHIVE_HOURS`: rolling retention window; default `72`.
+- `ARCHIVE_SEGMENT_SECONDS`: internal segment length; default `60`.
+
+Changing the retention setting affects new manifest updates after the recorder
+is restarted. The archive requires roughly three times the storage used in one
+day; actual usage depends on scene detail and the camera resolution.
+
+## Files
+
+- `scripts/camera-recorder.sh`: one H.264 encode feeding live and archive HLS.
+- `scripts/install.sh`: renders machine-specific Nginx and systemd files.
+- `scripts/camera-cleanup.sh`: removes old MP4 files from the former recorder.
+- `web/index.html`: dashboard and wall-clock archive timeline.
+- `config/`: service, Nginx, and environment templates.

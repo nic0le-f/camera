@@ -1,0 +1,11 @@
+[Unit]
+Description=Remove expired legacy camera recordings
+
+[Service]
+Type=oneshot
+User=__SERVICE_USER__
+Group=__SERVICE_GROUP__
+WorkingDirectory=__PROJECT_ROOT__
+Environment=PROJECT_ROOT=__PROJECT_ROOT__
+EnvironmentFile=-/etc/camera-recorder.env
+ExecStart=__PROJECT_ROOT__/scripts/camera-cleanup.sh

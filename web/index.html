@@ -1,241 +1,189 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-
-    <title>Home Camera</title>
-
-    <style>
-        body {
-            font-family: Arial, sans-serif;
-            max-width: 1000px;
-            margin: 30px auto;
-            padding: 0 20px;
-            background: #111;
-            color: white;
-        }
-
-        video {
-            width: 100%;
-            max-width: 900px;
-            background: black;
-            border-radius: 10px;
-            display: block;
-        }
-
-        .section {
-            margin-top: 30px;
-        }
-
-        a {
-            color: #9ecbff;
-            font-size: 1.1rem;
-        }
-
-        #recording-list {
-            max-height: 22rem;
-            overflow-y: auto;
-            padding-left: 1.4rem;
-        }
-
-        #recording-list li {
-            margin: 0.65rem 0;
-        }
-    </style>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Home Camera</title>
+  <style>
+    :root { color-scheme: dark; font-family: system-ui, sans-serif; }
+    body { max-width: 1050px; margin: 0 auto; padding: 1.25rem; background: #101214; color: #f5f7f8; }
+    header { display: flex; align-items: baseline; justify-content: space-between; gap: 1rem; }
+    h1 { margin-bottom: .25rem; }
+    h2 { margin-top: 0; }
+    .card { margin-top: 1.5rem; padding: 1.2rem; border: 1px solid #30363b; border-radius: 14px; background: #171a1d; }
+    video { display: block; width: 100%; max-height: 68vh; background: #000; border-radius: 10px; }
+    .status { min-height: 1.4em; color: #b9c2c9; }
+    .toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: .65rem; margin: .9rem 0; }
+    button, input { font: inherit; }
+    button { border: 1px solid #58636c; border-radius: 7px; padding: .5rem .75rem; background: #252a2f; color: white; cursor: pointer; }
+    button:hover { background: #343a40; }
+    button.primary { background: #1769aa; border-color: #2784cc; }
+    input[type="range"] { width: 100%; accent-color: #40a9ff; }
+    .timeline-labels { display: flex; justify-content: space-between; color: #aeb8bf; font-size: .85rem; }
+    .time-readout { font-variant-numeric: tabular-nums; font-weight: 650; }
+    .hidden { display: none; }
+    @media (max-width: 620px) { header { display: block; } .card { padding: .8rem; } }
+  </style>
 </head>
-
 <body>
+  <header>
+    <div><h1>Home Camera</h1><div id="clock" class="status"></div></div>
+  </header>
 
-<h1>Home Camera</h1>
+  <section class="card">
+    <h2>Live feed</h2>
+    <video id="live-video" controls autoplay muted playsinline></video>
+    <p id="live-status" class="status" role="status">Connecting…</p>
+  </section>
 
-<div class="section">
-    <h2>Saved recordings</h2>
-    <p>One-hour clips, kept for approximately 48 hours. Select a clip to play it, or play the full batch.</p>
-    <button id="play-all" type="button">Play all saved clips</button>
-    <button id="return-live" type="button" hidden>Return to live</button>
-    <button id="refresh-recordings" type="button">Refresh list</button>
-    <p id="recordings-status" role="status">Loading recordings…</p>
-    <ul id="recording-list"></ul>
-    <a href="/recordings/">View recordings</a>
-</div>
+  <section class="card">
+    <h2>Recordings</h2>
+    <p>Continuous rolling history, kept for 72 hours. Use the timeline to scroll through it as one recording.</p>
+    <button id="load-archive" class="primary" type="button">Open recording timeline</button>
+    <div id="archive-controls" class="hidden">
+      <video id="archive-video" controls muted playsinline></video>
+      <div class="toolbar">
+        <button type="button" data-hours="24">24 hours ago</button>
+        <button type="button" data-hours="12">12 hours ago</button>
+        <button type="button" data-hours="1">1 hour ago</button>
+        <button id="archive-now" class="primary" type="button">Latest</button>
+        <span id="archive-time" class="time-readout"></span>
+      </div>
+      <input id="archive-timeline" type="range" min="0" max="1" value="1" step="1" aria-label="Recording timeline">
+      <div class="timeline-labels"><span id="archive-start">Oldest</span><span id="archive-end">Latest</span></div>
+    </div>
+    <p id="archive-status" class="status" role="status">The archive may take up to a minute to appear after recording starts.</p>
+  </section>
 
-<div class="section">
-    <h2>Live Feed</h2>
+  <script src="https://cdn.jsdelivr.net/npm/hls.js@1/dist/hls.min.js"></script>
+  <script>
+    const liveVideo = document.querySelector("#live-video");
+    const liveStatus = document.querySelector("#live-status");
+    const archiveVideo = document.querySelector("#archive-video");
+    const archiveStatus = document.querySelector("#archive-status");
+    const archiveControls = document.querySelector("#archive-controls");
+    const loadArchiveButton = document.querySelector("#load-archive");
+    const timeline = document.querySelector("#archive-timeline");
+    const archiveTime = document.querySelector("#archive-time");
+    const archiveStart = document.querySelector("#archive-start");
+    const archiveEnd = document.querySelector("#archive-end");
+    const formatTime = new Intl.DateTimeFormat([], { dateStyle: "medium", timeStyle: "medium" });
+    let liveHls = null;
+    let archiveHls = null;
+    let dragging = false;
 
-    <video id="video" controls autoplay muted playsinline></video>
-    <p id="stream-status" role="status">Connecting to the camera…</p>
-</div>
-
-<script>
-const video = document.getElementById("video");
-const source = "/live/live.m3u8";
-const streamStatus = document.getElementById("stream-status");
-const recordingsStatus = document.getElementById("recordings-status");
-const playAllButton = document.getElementById("play-all");
-const returnLiveButton = document.getElementById("return-live");
-const refreshRecordingsButton = document.getElementById("refresh-recordings");
-const recordingList = document.getElementById("recording-list");
-let playlist = [];
-let playlistIndex = -1;
-let hlsPlayer = null;
-video.addEventListener("playing", () => { streamStatus.textContent = "Live"; });
-video.addEventListener("waiting", () => { streamStatus.textContent = "Buffering video…"; });
-video.addEventListener("error", () => { streamStatus.textContent = "Video could not load. Reload this page to reconnect."; });
-video.addEventListener("ended", () => {
-    if (playlistIndex < 0) return;
-    playlistIndex++;
-    if (playlistIndex >= playlist.length) {
-        playlistIndex = -1;
-        recordingsStatus.textContent = "Finished playing all saved clips.";
-        return;
+    function attachHls(video, url, config, onReady, onError) {
+      if (window.Hls && Hls.isSupported()) {
+        const player = new Hls(config);
+        player.loadSource(url);
+        player.attachMedia(video);
+        player.on(Hls.Events.MANIFEST_PARSED, onReady);
+        player.on(Hls.Events.ERROR, (_, data) => {
+          if (!data.fatal) return;
+          if (data.type === Hls.ErrorTypes.NETWORK_ERROR) {
+            onError("Stream unavailable. Retrying…");
+            setTimeout(() => player.startLoad(), 3000);
+          } else if (data.type === Hls.ErrorTypes.MEDIA_ERROR) {
+            onError("Video stalled. Recovering…");
+            player.recoverMediaError();
+          } else {
+            onError("The video player could not recover. Reload the page to retry.");
+            player.destroy();
+          }
+        });
+        return player;
+      }
+      if (video.canPlayType("application/vnd.apple.mpegurl")) {
+        video.src = url;
+        video.addEventListener("loadedmetadata", onReady, { once: true });
+        return null;
+      }
+      onError("This browser does not support HLS video.");
+      return null;
     }
-    playPlaylistClip();
-});
 
-async function playPlaylistClip() {
-    const clip = playlist[playlistIndex];
-    recordingsStatus.textContent = `Playing clip ${playlistIndex + 1} of ${playlist.length}: ${clip.name}`;
-    video.src = clip.url;
-    video.load();
-    try {
-        await video.play();
-    } catch {
-        recordingsStatus.textContent = "Press play to start the saved clips.";
+    liveHls = attachHls(
+      liveVideo,
+      "/live/live.m3u8",
+      { lowLatencyMode: true, liveSyncDurationCount: 2, liveMaxLatencyDurationCount: 5, maxBufferLength: 5 },
+      () => liveVideo.play().catch(() => { liveStatus.textContent = "Press play to start the live feed."; }),
+      message => { liveStatus.textContent = message; }
+    );
+    liveVideo.addEventListener("playing", () => { liveStatus.textContent = "Live"; });
+    liveVideo.addEventListener("waiting", () => { liveStatus.textContent = "Buffering…"; });
+
+    function seekableWindow() {
+      if (!archiveVideo.seekable.length) return null;
+      return {
+        start: archiveVideo.seekable.start(0),
+        end: archiveVideo.seekable.end(archiveVideo.seekable.length - 1)
+      };
     }
-}
 
-async function loadRecordings() {
-    recordingsStatus.textContent = "Loading saved clips…";
-    refreshRecordingsButton.disabled = true;
-    try {
-        const response = await fetch("/recordings/", { cache: "no-store" });
-        if (!response.ok) throw new Error("Recordings page unavailable");
-        const page = new DOMParser().parseFromString(await response.text(), "text/html");
-        const candidates = [...page.querySelectorAll("a[href]")]
-            .map(link => {
-                const url = new URL(link.getAttribute("href"), response.url);
-                return { url: url.href, name: decodeURIComponent(url.pathname.split("/").pop()) };
-            })
-            .filter(clip => /^\d{4}-\d\d-\d\d_\d\d-\d\d-\d\d\.mp4$/.test(clip.name))
-            .sort((a, b) => a.name.localeCompare(b.name));
-        recordingList.replaceChildren();
-        for (const clip of [...candidates].reverse()) {
-            const item = document.createElement("li");
-            const link = document.createElement("a");
-            link.href = clip.url;
-            link.textContent = clip.name.replace(/^(\d{4}-\d\d-\d\d)_(\d\d-\d\d-\d\d)\.mp4$/, "$1 $2");
-            item.append(link);
-            recordingList.append(item);
-        }
-        recordingsStatus.textContent = candidates.length
-            ? `Found ${candidates.length} recordings. Checking which clips are complete…`
-            : "No recordings yet. New clips will appear here.";
-        const checked = await Promise.all(candidates.map(async clip => {
-            const head = await fetch(clip.url, { method: "HEAD", cache: "no-store" });
-            const size = Number(head.headers.get("Content-Length"));
-            const modified = Date.parse(head.headers.get("Last-Modified") ?? "");
-            return head.ok && size > 50000 && Number.isFinite(modified) && Date.now() - modified > 90000 ? clip : null;
-        }));
-        playlist = checked.filter(Boolean);
-        recordingList.replaceChildren();
-        for (const clip of [...playlist].reverse()) {
-            const item = document.createElement("li");
-            const link = document.createElement("a");
-            link.href = clip.url;
-            link.textContent = clip.name.replace(/^(\d{4}-\d\d-\d\d)_(\d\d-\d\d-\d\d)\.mp4$/, "$1 $2");
-            item.append(link);
-            recordingList.append(item);
-        }
-        if (!playlist.length) {
-            recordingsStatus.textContent = "No completed clips yet. The current clip appears after it closes.";
-        } else {
-            recordingsStatus.textContent = `${playlist.length} completed recordings available.`;
-        }
-    } catch {
-        playlist = [];
-        recordingList.replaceChildren();
-        recordingsStatus.textContent = "Could not load recordings. Check your connection and refresh the list.";
-    } finally {
-        refreshRecordingsButton.disabled = false;
+    function dateAtMediaTime(mediaTime) {
+      if (archiveHls?.playingDate) {
+        return new Date(archiveHls.playingDate.getTime() + (mediaTime - archiveVideo.currentTime) * 1000);
+      }
+      const window = seekableWindow();
+      return window ? new Date(Date.now() - (window.end - mediaTime) * 1000) : null;
     }
-}
 
-playAllButton.addEventListener("click", async () => {
-    await loadRecordings();
-    if (!playlist.length) return;
-        if (hlsPlayer) {
-            hlsPlayer.destroy();
-            hlsPlayer = null;
-        }
-        playlistIndex = 0;
-        playAllButton.hidden = true;
-        returnLiveButton.hidden = false;
-        streamStatus.textContent = "Playing saved clips.";
-        await playPlaylistClip();
-});
-refreshRecordingsButton.addEventListener("click", loadRecordings);
-returnLiveButton.addEventListener("click", () => location.reload());
+    function updateTimeline() {
+      const window = seekableWindow();
+      if (!window) return;
+      timeline.min = String(window.start);
+      timeline.max = String(window.end);
+      if (!dragging) timeline.value = String(archiveVideo.currentTime || window.end);
+      const current = dateAtMediaTime(Number(timeline.value));
+      const start = dateAtMediaTime(window.start);
+      const end = dateAtMediaTime(window.end);
+      if (current) archiveTime.textContent = formatTime.format(current);
+      if (start) archiveStart.textContent = formatTime.format(start);
+      if (end) archiveEnd.textContent = formatTime.format(end);
+    }
 
-loadRecordings();
+    function seekHoursBack(hours) {
+      const window = seekableWindow();
+      if (!window) return;
+      archiveVideo.currentTime = Math.max(window.start, window.end - hours * 3600);
+      archiveVideo.play().catch(() => {});
+      updateTimeline();
+    }
 
-function startLivePlayer() {
-if (window.Hls && Hls.isSupported()) {
-    hlsPlayer = new Hls({
-        lowLatencyMode: true,
-        liveSyncDurationCount: 2,
-        liveMaxLatencyDurationCount: 4,
-        maxLiveSyncPlaybackRate: 1.2,
-        maxBufferLength: 4,
-        backBufferLength: 10
+    loadArchiveButton.addEventListener("click", () => {
+      loadArchiveButton.disabled = true;
+      archiveControls.classList.remove("hidden");
+      archiveStatus.textContent = "Loading recording history…";
+      archiveHls = attachHls(
+        archiveVideo,
+        "/recordings/archive.m3u8",
+        { maxBufferLength: 90, backBufferLength: 120 },
+        () => {
+          archiveStatus.textContent = "Recording history loaded. Drag the timeline to any available time.";
+          loadArchiveButton.classList.add("hidden");
+          setTimeout(() => { seekHoursBack(24); archiveVideo.pause(); }, 250);
+        },
+        message => { archiveStatus.textContent = message; loadArchiveButton.disabled = false; }
+      );
     });
 
-    hlsPlayer.loadSource(source);
-    hlsPlayer.attachMedia(video);
-    hlsPlayer.on(Hls.Events.ERROR, (_, data) => {
-        if (data.fatal) {
-            streamStatus.textContent = "Live video disconnected. Reconnecting…";
-            if (data.type === Hls.ErrorTypes.NETWORK_ERROR) {
-                setTimeout(() => hlsPlayer?.startLoad(-1), 2000);
-            } else if (data.type === Hls.ErrorTypes.MEDIA_ERROR) {
-                hlsPlayer?.recoverMediaError();
-            } else {
-                hlsPlayer?.destroy();
-                hlsPlayer = null;
-                streamStatus.textContent = "Video could not recover. Reload this page to reconnect.";
-            }
-        }
+    document.querySelectorAll("[data-hours]").forEach(button => {
+      button.addEventListener("click", () => seekHoursBack(Number(button.dataset.hours)));
     });
-    hlsPlayer.on(Hls.Events.LEVEL_UPDATED, () => {
-        const liveEdge = hlsPlayer?.liveSyncPosition;
-        if (liveEdge != null && liveEdge - video.currentTime > 2.5) {
-            video.currentTime = liveEdge;
-        }
+    document.querySelector("#archive-now").addEventListener("click", () => seekHoursBack(0));
+    timeline.addEventListener("pointerdown", () => { dragging = true; });
+    timeline.addEventListener("input", () => {
+      archiveVideo.currentTime = Number(timeline.value);
+      updateTimeline();
     });
-    document.addEventListener("visibilitychange", () => {
-        if (!document.hidden && hlsPlayer?.liveSyncPosition != null && playlistIndex < 0) {
-            video.currentTime = hlsPlayer.liveSyncPosition;
-            video.play().catch(() => { streamStatus.textContent = "Press play to resume live video."; });
-        }
-    });
-} else if (video.canPlayType("application/vnd.apple.mpegurl")) {
-    video.src = source;
-} else {
-    streamStatus.textContent = "The video player could not start. Check your connection and reload this page.";
-    video.outerHTML = "<p>This browser does not support the live video format.</p>";
-}
-}
+    timeline.addEventListener("change", () => { dragging = false; updateTimeline(); });
+    archiveVideo.addEventListener("timeupdate", updateTimeline);
+    archiveVideo.addEventListener("progress", updateTimeline);
 
-if (window.Hls) {
-    startLivePlayer();
-} else {
-    const hlsScript = document.createElement("script");
-    hlsScript.src = "https://cdn.jsdelivr.net/npm/hls.js@latest";
-    hlsScript.onload = startLivePlayer;
-    hlsScript.onerror = startLivePlayer;
-    document.head.append(hlsScript);
-}
-</script>
-
+    setInterval(() => {
+      document.querySelector("#clock").textContent = formatTime.format(new Date());
+      updateTimeline();
+    }, 1000);
+  </script>
 </body>
 </html>

@@ -1,16 +1,35 @@
 #!/usr/bin/env bash
 set -u
 
-CAMERA_URL="${CAMERA_URL:-http://192.168.1.241:81/stream}"
-RECORDINGS="${RECORDINGS:-/home/nf-box/Projects/camera/recordings}"
-LIVE="${LIVE:-/home/nf-box/Projects/camera/web/live}"
+CAMERA_URL="${CAMERA_URL:-}"
+PROJECT_ROOT="${PROJECT_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
+ARCHIVE="${ARCHIVE:-$PROJECT_ROOT/recordings}"
+LIVE="${LIVE:-$PROJECT_ROOT/web/live}"
+ARCHIVE_HOURS="${ARCHIVE_HOURS:-72}"
+ARCHIVE_SEGMENT_SECONDS="${ARCHIVE_SEGMENT_SECONDS:-60}"
 
-mkdir -p "$RECORDINGS" "$LIVE"
+if [[ -z "$CAMERA_URL" ]]; then
+    echo "CAMERA_URL must be set in /etc/camera-recorder.env" >&2
+    exit 1
+fi
 
-# Encode once and send the same H.264 packets to both outputs. Fragmented
-# MP4 commits each keyframe interval without waiting for the clip to close.
-outputs="[f=segment:segment_format=mp4:segment_time=3600:segment_atclocktime=1:reset_timestamps=1:strftime=1:segment_format_options=movflags=+frag_keyframe+empty_moov+default_base_moof]$RECORDINGS/%Y-%m-%d_%H-%M-%S.mp4"
-outputs+="|[f=hls:hls_time=0.8:hls_list_size=8:hls_delete_threshold=4:hls_start_number_source=epoch:hls_flags=delete_segments+omit_endlist+independent_segments+temp_file:hls_segment_filename=$LIVE/segment_%d.ts]$LIVE/live.m3u8"
+if (( ARCHIVE_HOURS < 1 || ARCHIVE_SEGMENT_SECONDS < 1 )); then
+    echo "ARCHIVE_HOURS and ARCHIVE_SEGMENT_SECONDS must be positive integers" >&2
+    exit 1
+fi
+
+archive_entries=$((ARCHIVE_HOURS * 3600 / ARCHIVE_SEGMENT_SECONDS))
+if (( archive_entries < 2 )); then
+    archive_entries=2
+fi
+
+mkdir -p "$ARCHIVE" "$LIVE"
+
+# Encode once and send identical H.264 packets to a short low-latency live
+# playlist and a persistent rolling DVR playlist. The archive uses small files
+# internally, but the browser exposes them as one continuous recording.
+outputs="[f=hls:hls_time=0.8:hls_list_size=8:hls_delete_threshold=4:hls_start_number_source=epoch:hls_flags=delete_segments+omit_endlist+independent_segments+temp_file:hls_segment_filename=$LIVE/segment_%d.ts]$LIVE/live.m3u8"
+outputs+="|[f=hls:hls_time=$ARCHIVE_SEGMENT_SECONDS:hls_list_size=$archive_entries:hls_delete_threshold=10:hls_start_number_source=epoch:hls_flags=delete_segments+append_list+omit_endlist+independent_segments+program_date_time+temp_file:hls_segment_filename=$ARCHIVE/archive_%d.ts]$ARCHIVE/archive.m3u8"
 
 child=""
 stopping=0
@@ -23,7 +42,7 @@ stop_capture() {
 trap stop_capture TERM INT
 
 while (( ! stopping )); do
-    echo "$(date): Starting camera stream"
+    echo "$(date): Starting camera stream from $CAMERA_URL"
 
     # MJPEG has no capture timestamps. Preserve arrival timing instead of
     # treating every received frame as 1/25 second of video.

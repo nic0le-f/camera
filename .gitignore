@@ -2,6 +2,7 @@
 /recordings/
 /camera-recordings/
 /web/live/
+/config/camera.env
 *.mp4
 *.ts
 
